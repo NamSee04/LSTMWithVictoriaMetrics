@@ -1,0 +1,33 @@
+# vmalert alerting rules for LSTM anomaly detection
+# Load these rules into vmalert to get alerts when anomalies are detected
+
+groups:
+  - name: lstm_anomaly_alerts
+    interval: 1m
+    rules:
+      - alert: LSTMAnomalyDetected
+        expr: lstm_anomaly_anomaly_score > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          source: lstm_anomaly_detection
+        annotations:
+          summary: "LSTM anomaly detected for {{ $labels.for }}"
+          description: >
+            Anomaly score {{ $value | printf "%.2f" }} detected for metric
+            `{{ $labels.for }}` on {{ $labels.instance | default "unknown" }}.
+            Score > 1.0 indicates the actual value deviates significantly
+            from the LSTM model's prediction.
+
+      - alert: LSTMCriticalAnomaly
+        expr: lstm_anomaly_anomaly_score > 2.0
+        for: 3m
+        labels:
+          severity: critical
+          source: lstm_anomaly_detection
+        annotations:
+          summary: "CRITICAL anomaly for {{ $labels.for }}"
+          description: >
+            Critical anomaly score {{ $value | printf "%.2f" }} detected for
+            metric `{{ $labels.for }}` on {{ $labels.instance | default "unknown" }}.
+            Score > 2.0 indicates a severe deviation from expected behavior.
