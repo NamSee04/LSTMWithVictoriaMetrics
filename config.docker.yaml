@@ -11,13 +11,15 @@ reader:
       expr: '(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100'
 
 model:
-  sequence_length: 60
-  hidden_size: 64
+  sequence_length: 120
+  hidden_size: 128
   num_layers: 2
-  dropout: 0.2
-  epochs: 50
-  learning_rate: 0.001
-  threshold_sigma: 3.0
+  dropout: 0.1
+  epochs: 100
+  learning_rate: 0.0005
+  threshold_sigma: 5.0
+  calibration_ratio: 0.2
+  min_threshold: 0.02
   checkpoint_max_age_days: 30
   checkpoint_max_files: 500
   delete_orphan_checkpoints: true
@@ -29,8 +31,8 @@ writer:
     for: "$QUERY_KEY"
 
 scheduler:
-  fit_every: "1h"
+  fit_every: "15m"
   infer_every: "1m"
-  fit_window: "1d"
+  fit_window: "3d"
 
 checkpoint_dir: "./model_checkpoints"

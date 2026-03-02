@@ -11,13 +11,15 @@ reader:
       expr: '(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100'
 
 model:
-  sequence_length: 60       # lookback window (number of data points)
-  hidden_size: 64           # LSTM hidden layer size
+  sequence_length: 120      # lookback window (number of data points)
+  hidden_size: 128          # LSTM hidden layer size
   num_layers: 2             # number of stacked LSTM layers
-  dropout: 0.2              # dropout rate between LSTM layers
-  epochs: 50                # training epochs per fit cycle
-  learning_rate: 0.001      # Adam optimizer learning rate
-  threshold_sigma: 3.0      # anomaly threshold: mean_error + sigma * std_error
+  dropout: 0.1              # dropout rate between LSTM layers
+  epochs: 100               # training epochs per fit cycle
+  learning_rate: 0.0005     # Adam optimizer learning rate
+  threshold_sigma: 5.0      # anomaly threshold: mean_error + sigma * std_error
+  calibration_ratio: 0.2    # holdout fraction for threshold calibration
+  min_threshold: 0.02       # floor for threshold in scaled space (less over-sensitive)
   checkpoint_max_age_days: 3   # auto-delete checkpoints older than this many days
   checkpoint_max_files: 10     # auto-delete oldest checkpoints when this limit is exceeded
   delete_orphan_checkpoints: true  # delete checkpoints for series that no longer exist
@@ -29,8 +31,8 @@ writer:
     for: "$QUERY_KEY"
 
 scheduler:
-  fit_every: "1h"           # retrain model every hour
+  fit_every: "15m"          # retrain model every 15 minutes
   infer_every: "1m"         # run inference every minute
-  fit_window: "1d"          # use last 24h of data for training
+  fit_window: "3d"          # use last 3 days of data for training
 
 checkpoint_dir: "./model_checkpoints"  # host-mounted path in Docker

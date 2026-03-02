@@ -72,6 +72,8 @@ class LSTMAnomaly:
         self.epochs: int = config.get("epochs", 50)
         self.learning_rate: float = config.get("learning_rate", 0.001)
         self.threshold_sigma: float = config.get("threshold_sigma", 3.0)
+        self.calibration_ratio: float = float(config.get("calibration_ratio", 0.2))
+        self.min_threshold: float = float(config.get("min_threshold", 0.02))
         self.checkpoint_max_age_days: int = int(config.get("checkpoint_max_age_days", 30))
         self.checkpoint_max_files: int = int(config.get("checkpoint_max_files", 500))
         self.delete_orphan_checkpoints: bool = bool(config.get("delete_orphan_checkpoints", True))
@@ -86,6 +88,8 @@ class LSTMAnomaly:
             f"hidden={self.hidden_size}, layers={self.num_layers}, "
             f"epochs={self.epochs}, lr={self.learning_rate}, "
             f"threshold_sigma={self.threshold_sigma}, "
+            f"calibration_ratio={self.calibration_ratio}, "
+            f"min_threshold={self.min_threshold}, "
             f"ckpt_max_age_days={self.checkpoint_max_age_days}, "
             f"ckpt_max_files={self.checkpoint_max_files}, "
             f"delete_orphans={self.delete_orphan_checkpoints}"
@@ -133,8 +137,24 @@ class LSTMAnomaly:
 
         # Create sequences
         X, y = _create_sequences(scaled, self.sequence_length)
-        X_tensor = torch.FloatTensor(X).unsqueeze(-1).to(DEVICE)  # (N, seq_len, 1)
-        y_tensor = torch.FloatTensor(y).unsqueeze(-1).to(DEVICE)  # (N, 1)
+        if len(X) == 0:
+            logger.warning(f"[Model] No training sequences for '{series_key}'")
+            return False
+
+        # Split into train/calibration to avoid overly optimistic thresholds.
+        # Training on all data and thresholding on the same data makes thresholds too tight.
+        calibration_ratio = min(max(self.calibration_ratio, 0.0), 0.5)
+        split_idx = int(len(X) * (1.0 - calibration_ratio))
+        if split_idx <= 0 or split_idx >= len(X):
+            split_idx = len(X)
+
+        X_train = X[:split_idx]
+        y_train = y[:split_idx]
+        X_cal = X[split_idx:] if split_idx < len(X) else X
+        y_cal = y[split_idx:] if split_idx < len(X) else y
+
+        X_train_tensor = torch.FloatTensor(X_train).unsqueeze(-1).to(DEVICE)  # (N, seq_len, 1)
+        y_train_tensor = torch.FloatTensor(y_train).unsqueeze(-1).to(DEVICE)  # (N, 1)
 
         # Create or get model
         model = self._get_or_create_model(series_key)
@@ -145,8 +165,8 @@ class LSTMAnomaly:
         model.train()
         for epoch in range(self.epochs):
             optimizer.zero_grad()
-            output = model(X_tensor)
-            loss = criterion(output, y_tensor)
+            output = model(X_train_tensor)
+            loss = criterion(output, y_train_tensor)
             loss.backward()
             optimizer.step()
 
@@ -155,15 +175,17 @@ class LSTMAnomaly:
 
         # Calculate error distribution for threshold
         model.eval()
+        X_cal_tensor = torch.FloatTensor(X_cal).unsqueeze(-1).to(DEVICE)
         with torch.no_grad():
-            predictions = model(X_tensor).cpu().numpy().flatten()
-        errors = np.abs(y - predictions)
+            predictions = model(X_cal_tensor).cpu().numpy().flatten()
+        errors = np.abs(y_cal - predictions)
         mean_err = float(np.mean(errors))
         std_err = float(np.std(errors))
         self._thresholds[series_key] = (mean_err, std_err)
 
         logger.info(
             f"[Model] Fitted '{series_key}': loss={loss.item():.6f}, "
+            f"train_samples={len(X_train)}, cal_samples={len(X_cal)}, "
             f"error_mean={mean_err:.6f}, error_std={std_err:.6f}"
         )
         return True
@@ -227,8 +249,7 @@ class LSTMAnomaly:
 
         # Calculate anomaly threshold in scaled space
         threshold = mean_err + self.threshold_sigma * std_err
-        if threshold == 0:
-            threshold = 1e-6  # prevent division by zero
+        threshold = max(threshold, self.min_threshold)
 
         # Calculate errors and scores in scaled space
         errors_scaled = np.abs(y_actual_scaled - predictions_scaled)
