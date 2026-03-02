@@ -1,0 +1,65 @@
+# Dockerfile for building a standalone binary using PyInstaller
+
+FROM python:3.11-slim as builder
+
+WORKDIR /build
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    binutils \
+    upx \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install dependencies + PyInstaller
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir pyinstaller
+
+# Copy application code
+COPY src/ ./src/
+COPY config.yaml .
+COPY alerts/ ./alerts/
+
+# Create PyInstaller spec file and build binary
+RUN pyinstaller --onefile \
+    --name lstm-anomaly \
+    --add-data "config.yaml:." \
+    --add-data "alerts:alerts" \
+    --hidden-import numpy \
+    --hidden-import pandas \
+    --hidden-import torch \
+    --hidden-import sklearn \
+    --hidden-import yaml \
+    --collect-all torch \
+    --collect-all numpy \
+    --noupx \
+    src/main.py
+
+# Stage 2: Runtime image with just the binary
+FROM debian:bullseye-slim
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from builder
+COPY --from=builder /build/dist/lstm-anomaly /app/
+COPY --from=builder /build/config.yaml /app/
+COPY --from=builder /build/alerts /app/alerts/
+
+# Create directory for model checkpoints
+RUN mkdir -p ./model_checkpoints
+
+# Run as non-root user
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+CMD ["./lstm-anomaly", "--config", "config.yaml"]

@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # VictoriaMetrics - Time Series Database
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:latest
+    container_name: victoriametrics
+    ports:
+      - "8428:8428"
+    volumes:
+      - vm-data:/victoria-metrics-data
+    command:
+      - '--storageDataPath=/victoria-metrics-data'
+      - '--httpListenAddr=:8428'
+      - '--retentionPeriod=7d'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Node Exporter - System Metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+  # VMAgent - Metrics Scraper
+  vmagent:
+    image: victoriametrics/vmagent:latest
+    container_name: vmagent
+    depends_on:
+      - victoriametrics
+      - node-exporter
+    ports:
+      - "8429:8429"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - vmagent-data:/vmagentdata
+    command:
+      - '--promscrape.config=/etc/prometheus/prometheus.yml'
+      - '--remoteWrite.url=http://victoriametrics:8428/api/v1/write'
+    restart: unless-stopped
+
+  # LSTM Anomaly Detection
+  lstm-anomaly:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lstm-anomaly-detector
+    depends_on:
+      - victoriametrics
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./model_checkpoints:/app/model_checkpoints
+      - ./alerts:/app/alerts:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  vm-data:
+  vmagent-data:
