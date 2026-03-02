@@ -1,46 +1,43 @@
-# Multi-stage Dockerfile for LSTM Anomaly Detection
+# syntax=docker/dockerfile:1.7
 
-# Stage 1: Base image with dependencies
-FROM python:3.11-slim as base
+ARG PYTHON_IMAGE=python:3.11-slim-bookworm
 
-WORKDIR /app
+FROM ${PYTHON_IMAGE} AS builder
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Stage 2: Runtime image
-FROM python:3.11-slim
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    VENV_PATH=/opt/venv
 
 WORKDIR /app
 
-# Copy Python packages from base stage
-COPY --from=base /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=base /usr/local/bin /usr/local/bin
+RUN python -m venv "${VENV_PATH}"
+ENV PATH="${VENV_PATH}/bin:${PATH}"
 
-# Copy application code
-COPY src/ ./src/
-COPY config.yaml .
-COPY alerts/ ./alerts/
+COPY requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r /app/requirements.txt
 
-# Create directory for model checkpoints
-RUN mkdir -p ./model_checkpoints
+FROM ${PYTHON_IMAGE} AS runtime
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}"
 
-# Run as non-root user for security
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
-USER appuser
+WORKDIR /app
 
-# Default command
+RUN groupadd --system --gid 10001 app && \
+    useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --chown=app:app src/ /app/src/
+COPY --chown=app:app config.yaml /app/config.yaml
+COPY --chown=app:app alerts/ /app/alerts/
+
+RUN mkdir -p /app/model_checkpoints && \
+    chown -R app:app /app/model_checkpoints
+
+USER app
+
 CMD ["python", "-m", "src.main", "--config", "config.yaml"]

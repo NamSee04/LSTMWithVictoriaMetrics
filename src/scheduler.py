@@ -26,6 +26,7 @@ class PeriodicScheduler:
         reader: VmReader,
         writer: VmWriter,
         model: LSTMAnomaly,
+        checkpoint_dir: str = "./model_checkpoints",
     ):
         self.fit_every = _parse_duration_to_seconds(config.get("fit_every", "1h"))
         self.infer_every = _parse_duration_to_seconds(config.get("infer_every", "1m"))
@@ -34,6 +35,7 @@ class PeriodicScheduler:
         self.reader = reader
         self.writer = writer
         self.model = model
+        self.checkpoint_dir = checkpoint_dir
         self._running = False
         self._last_fit_time: float = 0.0
 
@@ -69,6 +71,12 @@ class PeriodicScheduler:
                     logger.error(f"[Scheduler] FIT failed for '{full_key}': {e}")
 
         self._last_fit_time = now
+        if fit_count > 0:
+            try:
+                self.model.save(self.checkpoint_dir)
+                logger.info(f"[Scheduler] Checkpoints saved to {self.checkpoint_dir}")
+            except Exception as e:
+                logger.error(f"[Scheduler] Failed to save checkpoints: {e}")
         logger.info(f"[Scheduler] FIT cycle complete: {fit_count} models trained")
 
     def _run_infer(self) -> None:

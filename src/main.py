@@ -68,7 +68,12 @@ def main() -> None:
     reader = VmReader(config["reader"])
     writer = VmWriter(config["writer"])
     model = LSTMAnomaly(config["model"])
-    scheduler = PeriodicScheduler(config["scheduler"], reader, writer, model)
+    checkpoint_dir = config.get("checkpoint_dir", "./model_checkpoints")
+    scheduler = PeriodicScheduler(config["scheduler"], reader, writer, model, checkpoint_dir=checkpoint_dir)
+
+    # Load checkpoints on startup (if available)
+    model.load(checkpoint_dir)
+    logger.info(f"Checkpoint directory: {checkpoint_dir}")
 
     # Handle graceful shutdown
     def signal_handler(sig, frame):
@@ -93,7 +98,7 @@ def main() -> None:
         logger.info("Shutting down...")
     finally:
         # Save models on exit
-        model.save("./model_checkpoints")
+        model.save(checkpoint_dir)
         logger.info("Models saved. Goodbye!")
 
 

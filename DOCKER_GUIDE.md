@@ -4,7 +4,7 @@
 
 Install Docker and Docker Compose:
 - **macOS**: [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/)
-- **Linux**: `sudo apt-get install docker.io docker-compose`
+- **Linux**: `sudo apt-get install docker.io docker-compose-plugin`
 - **Windows**: [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
 
 ## Step-by-Step Guide
@@ -17,14 +17,14 @@ Make sure you have these files:
 ├── docker-compose.yml
 ├── prometheus.yml
 ├── .dockerignore
-├── config.yaml
+├── config.docker.yaml
 ├── requirements.txt
 └── src/
 ```
 
-### Step 2: Update config.yaml for Docker
+### Step 2: Update config.docker.yaml for Docker
 
-Update your `config.yaml` to use Docker service names:
+Update your `config.docker.yaml` to use Docker service names:
 
 ```yaml
 reader:
@@ -42,28 +42,28 @@ writer:
 # Build the application image
 docker build -t lstm-anomaly:latest .
 
-# Or let docker-compose build it
-docker-compose build
+# Or let docker compose build it
+docker compose build
 ```
 
 ### Step 4: Start All Services
 
 ```bash
 # Start all services (VictoriaMetrics, Node Exporter, LSTM app)
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # View logs for specific service
-docker-compose logs -f lstm-anomaly
+docker compose logs -f lstm-anomaly
 ```
 
 ### Step 5: Verify Services Are Running
 
 ```bash
 # Check all containers
-docker-compose ps
+docker compose ps
 
 # Should show 4 containers running:
 # - victoriametrics (port 8428)
@@ -87,7 +87,7 @@ Test if metrics are being collected:
 curl 'http://localhost:8428/api/v1/query?query=node_cpu_seconds_total'
 
 # Query anomaly metrics (after LSTM runs)
-curl 'http://localhost:8428/api/v1/query?query=lstm_anomaly_score'
+curl 'http://localhost:8428/api/v1/query?query=lstm_anomaly_anomaly_score'
 ```
 
 ## Common Commands
@@ -96,55 +96,55 @@ curl 'http://localhost:8428/api/v1/query?query=lstm_anomaly_score'
 
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
 
 # Stop all services
-docker-compose down
+docker compose down
 
 # Stop and remove volumes (clean slate)
-docker-compose down -v
+docker compose down -v
 
 # Restart a specific service
-docker-compose restart lstm-anomaly
+docker compose restart lstm-anomaly
 ```
 
 ### View Logs
 
 ```bash
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Specific service
-docker-compose logs -f lstm-anomaly
+docker compose logs -f lstm-anomaly
 
 # Last 100 lines
-docker-compose logs --tail=100 lstm-anomaly
+docker compose logs --tail=100 lstm-anomaly
 ```
 
 ### Execute Commands in Container
 
 ```bash
 # Open shell in container
-docker-compose exec lstm-anomaly /bin/bash
+docker compose exec lstm-anomaly /bin/bash
 
 # Run Python commands
-docker-compose exec lstm-anomaly python -c "import torch; print(torch.__version__)"
+docker compose exec lstm-anomaly python -c "import torch; print(torch.__version__)"
 
-# Check config
-docker-compose exec lstm-anomaly cat config.yaml
+# Check config inside container
+docker compose exec lstm-anomaly cat /app/config.yaml
 ```
 
 ### Build and Update
 
 ```bash
 # Rebuild after code changes
-docker-compose build lstm-anomaly
+docker compose build lstm-anomaly
 
 # Rebuild and restart
-docker-compose up -d --build lstm-anomaly
+docker compose up -d --build lstm-anomaly
 
 # Pull latest base images
-docker-compose pull
+docker compose pull
 ```
 
 ## Running Just the LSTM App (Standalone)
@@ -157,21 +157,22 @@ If you have VictoriaMetrics running elsewhere:
 # Build
 docker build -t lstm-anomaly:latest .
 
-# Run (update datasource_url in config.yaml first)
+# Run (update datasource_url in config.docker.yaml first)
 docker run -d \
   --name lstm-anomaly \
-  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/config.docker.yaml:/app/config.yaml:ro \
   -v $(pwd)/model_checkpoints:/app/model_checkpoints \
   lstm-anomaly:latest
 ```
 
-### Option 2: Custom Environment Variables
+### Option 2: Use a Different Config File Name
 
 ```bash
+# Keep your own config file name and mount it to /app/config.yaml
 docker run -d \
   --name lstm-anomaly \
-  -e VM_URL="http://your-vm-server:8428" \
-  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/my-config.yaml:/app/config.yaml:ro \
+  -v $(pwd)/model_checkpoints:/app/model_checkpoints \
   lstm-anomaly:latest
 ```
 
@@ -185,20 +186,20 @@ For development, mount your source code:
 # Add to docker-compose.yml under lstm-anomaly service:
 volumes:
   - ./src:/app/src:ro  # Read-only mount
-  - ./config.yaml:/app/config.yaml
+  - ./config.docker.yaml:/app/config.yaml:ro
 ```
 
 Then restart:
 ```bash
-docker-compose restart lstm-anomaly
+docker compose restart lstm-anomaly
 ```
 
 ### Method 2: Rebuild on Changes
 
 ```bash
 # Make code changes, then:
-docker-compose build lstm-anomaly
-docker-compose up -d lstm-anomaly
+docker compose build lstm-anomaly
+docker compose up -d lstm-anomaly
 ```
 
 ## Troubleshooting
@@ -207,30 +208,30 @@ docker-compose up -d lstm-anomaly
 
 ```bash
 # Check logs
-docker-compose logs lstm-anomaly
+docker compose logs lstm-anomaly
 
 # Check if config is valid
-docker-compose exec lstm-anomaly cat /app/config.yaml
+docker compose exec lstm-anomaly cat /app/config.yaml
 
 # Verify Python can import modules
-docker-compose exec lstm-anomaly python -c "from src.main import main"
+docker compose exec lstm-anomaly python -c "from src.main import main"
 ```
 
 ### Can't connect to VictoriaMetrics
 
 ```bash
 # From inside container
-docker-compose exec lstm-anomaly curl http://victoriametrics:8428/api/v1/query?query=up
+docker compose exec lstm-anomaly curl http://victoriametrics:8428/api/v1/query?query=up
 
 # Check network
-docker-compose exec lstm-anomaly ping victoriametrics
+docker compose exec lstm-anomaly ping victoriametrics
 ```
 
 ### Permission issues
 
 ```bash
 # Fix ownership of model_checkpoints
-sudo chown -R 1000:1000 model_checkpoints/
+sudo chown -R 10001:10001 model_checkpoints/
 ```
 
 ### Out of memory
@@ -251,7 +252,7 @@ services:
 ### 1. Use specific versions
 
 ```dockerfile
-FROM python:3.11.8-slim  # Not :latest
+FROM python:3.11-slim-bookworm  # Avoid :latest
 ```
 
 ### 2. Health checks
@@ -295,10 +296,10 @@ env_file:
 
 ```bash
 # Stop and remove containers, networks
-docker-compose down
+docker compose down
 
 # Also remove volumes
-docker-compose down -v
+docker compose down -v
 
 # Remove images
 docker rmi lstm-anomaly:latest
@@ -309,11 +310,11 @@ docker system prune -a --volumes
 
 ## Next Steps
 
-1. ✅ Start services: `docker-compose up -d`
-2. ✅ Check logs: `docker-compose logs -f`
+1. ✅ Start services: `docker compose up -d`
+2. ✅ Check logs: `docker compose logs -f`
 3. ✅ Verify metrics: `curl http://localhost:8428/api/v1/query?query=up`
 4. ✅ Wait for anomaly detection: Check logs for "Training completed"
-5. ✅ Query anomalies: `curl http://localhost:8428/api/v1/query?query=lstm_anomaly_score`
+5. ✅ Query anomalies: `curl http://localhost:8428/api/v1/query?query=lstm_anomaly_anomaly_score`
 
 For more details, see:
 - VictoriaMetrics: https://docs.victoriametrics.com/

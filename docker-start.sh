@@ -32,7 +32,7 @@ echo ""
 
 # Step 1: Check required files
 echo "📋 Step 1: Checking required files..."
-required_files=("Dockerfile" "docker-compose.yml" "config.yaml" "requirements.txt" "prometheus.yml")
+required_files=("Dockerfile" "docker-compose.yml" "config.docker.yaml" "requirements.txt" "prometheus.yml")
 for file in "${required_files[@]}"; do
     if [ ! -f "$file" ]; then
         echo "❌ Missing file: $file"
@@ -42,10 +42,10 @@ for file in "${required_files[@]}"; do
 done
 echo ""
 
-# Step 2: Update config.yaml for Docker
-echo "📝 Step 2: Checking config.yaml..."
-if grep -q "localhost" config.yaml; then
-    echo "⚠️  WARNING: config.yaml contains 'localhost'"
+# Step 2: Validate Docker config
+echo "📝 Step 2: Checking config.docker.yaml..."
+if grep -q "localhost" config.docker.yaml; then
+    echo "⚠️  WARNING: config.docker.yaml contains 'localhost'"
     echo "   For Docker, you should use 'victoriametrics' instead of 'localhost'"
     echo "   Example: datasource_url: \"http://victoriametrics:8428\""
     echo ""
@@ -100,7 +100,7 @@ while [ $retry_count -lt $max_retries ]; do
 done
 
 if [ $retry_count -eq $max_retries ]; then
-    echo "   ⚠️  VictoriaMetrics might not be ready yet. Check logs: docker-compose logs victoriametrics"
+    echo "   ⚠️  VictoriaMetrics might not be ready yet. Check logs: $DOCKER_COMPOSE logs victoriametrics"
 fi
 echo ""
 
@@ -121,7 +121,7 @@ echo "   • Restart LSTM:        $DOCKER_COMPOSE restart lstm-anomaly"
 echo ""
 echo "🔍 Test Queries:"
 echo "   • Check metrics:       curl 'http://localhost:8428/api/v1/query?query=up'"
-echo "   • Check anomalies:     curl 'http://localhost:8428/api/v1/query?query=lstm_anomaly_score'"
+echo "   • Check anomalies:     curl 'http://localhost:8428/api/v1/query?query=lstm_anomaly_anomaly_score'"
 echo ""
 echo "📖 For more details, see DOCKER_GUIDE.md"
 echo ""

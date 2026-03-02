@@ -9,6 +9,7 @@ Output format matches vmanomaly: anomaly_score, yhat, yhat_lower, yhat_upper.
 
 import logging
 import os
+import time
 from typing import Any, Optional
 
 import numpy as np
@@ -71,6 +72,9 @@ class LSTMAnomaly:
         self.epochs: int = config.get("epochs", 50)
         self.learning_rate: float = config.get("learning_rate", 0.001)
         self.threshold_sigma: float = config.get("threshold_sigma", 3.0)
+        self.checkpoint_max_age_days: int = int(config.get("checkpoint_max_age_days", 30))
+        self.checkpoint_max_files: int = int(config.get("checkpoint_max_files", 500))
+        self.delete_orphan_checkpoints: bool = bool(config.get("delete_orphan_checkpoints", True))
 
         # Per-series state: each unique labelset gets its own model
         self._models: dict[str, LSTMNetwork] = {}
@@ -81,7 +85,10 @@ class LSTMAnomaly:
             f"[Model] LSTM config: seq_len={self.sequence_length}, "
             f"hidden={self.hidden_size}, layers={self.num_layers}, "
             f"epochs={self.epochs}, lr={self.learning_rate}, "
-            f"threshold_sigma={self.threshold_sigma}"
+            f"threshold_sigma={self.threshold_sigma}, "
+            f"ckpt_max_age_days={self.checkpoint_max_age_days}, "
+            f"ckpt_max_files={self.checkpoint_max_files}, "
+            f"delete_orphans={self.delete_orphan_checkpoints}"
         )
 
     def _get_or_create_model(self, series_key: str) -> LSTMNetwork:
@@ -259,6 +266,7 @@ class LSTMAnomaly:
     def save(self, directory: str) -> None:
         """Save all trained models to disk."""
         os.makedirs(directory, exist_ok=True)
+        active_files: set[str] = set()
         for series_key, model in self._models.items():
             safe_key = series_key.replace("/", "_").replace(",", "_").replace("=", "_")
             path = os.path.join(directory, f"lstm_{safe_key}.pt")
@@ -268,13 +276,64 @@ class LSTMAnomaly:
                 "scaler_max": self._scalers[series_key].data_max_,
                 "threshold": self._thresholds.get(series_key, (0.0, 0.0)),
             }, path)
+            active_files.add(os.path.abspath(path))
             logger.info(f"[Model] Saved model for '{series_key}' to {path}")
+
+        if self.delete_orphan_checkpoints:
+            self._delete_orphan_checkpoints(directory, active_files)
+
+        self._cleanup_checkpoints(directory)
+
+    def _delete_orphan_checkpoints(self, directory: str, active_files: set[str]) -> None:
+        """Delete checkpoint files that do not belong to currently loaded model keys."""
+        for fname in os.listdir(directory):
+            if not (fname.startswith("lstm_") and fname.endswith(".pt")):
+                continue
+            path = os.path.abspath(os.path.join(directory, fname))
+            if path in active_files:
+                continue
+            try:
+                os.remove(path)
+                logger.info(f"[Model] Deleted orphan checkpoint: {path}")
+            except OSError as e:
+                logger.warning(f"[Model] Failed to delete orphan checkpoint '{path}': {e}")
+
+    def _cleanup_checkpoints(self, directory: str) -> None:
+        """Apply age and file-count retention to checkpoint files."""
+        checkpoint_files = [
+            os.path.join(directory, fname)
+            for fname in os.listdir(directory)
+            if fname.startswith("lstm_") and fname.endswith(".pt")
+        ]
+
+        if self.checkpoint_max_age_days > 0:
+            cutoff_ts = time.time() - (self.checkpoint_max_age_days * 86400)
+            for path in list(checkpoint_files):
+                try:
+                    if os.path.getmtime(path) < cutoff_ts:
+                        os.remove(path)
+                        checkpoint_files.remove(path)
+                        logger.info(f"[Model] Deleted old checkpoint: {path}")
+                except OSError as e:
+                    logger.warning(f"[Model] Failed to delete old checkpoint '{path}': {e}")
+
+        if self.checkpoint_max_files > 0 and len(checkpoint_files) > self.checkpoint_max_files:
+            checkpoint_files.sort(key=os.path.getmtime, reverse=True)
+            to_delete = checkpoint_files[self.checkpoint_max_files :]
+            for path in to_delete:
+                try:
+                    os.remove(path)
+                    logger.info(f"[Model] Deleted extra checkpoint due to max_files: {path}")
+                except OSError as e:
+                    logger.warning(f"[Model] Failed to delete extra checkpoint '{path}': {e}")
 
     def load(self, directory: str) -> None:
         """Load trained models from disk."""
         if not os.path.exists(directory):
             logger.info(f"[Model] No saved models directory: {directory}")
             return
+
+        self._cleanup_checkpoints(directory)
 
         for fname in os.listdir(directory):
             if not fname.endswith(".pt"):
