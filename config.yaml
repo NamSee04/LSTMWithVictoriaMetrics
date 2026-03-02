@@ -18,8 +18,8 @@ model:
   epochs: 50                # training epochs per fit cycle
   learning_rate: 0.001      # Adam optimizer learning rate
   threshold_sigma: 3.0      # anomaly threshold: mean_error + sigma * std_error
-  checkpoint_max_age_days: 30   # auto-delete checkpoints older than this many days
-  checkpoint_max_files: 500     # auto-delete oldest checkpoints when this limit is exceeded
+  checkpoint_max_age_days: 3   # auto-delete checkpoints older than this many days
+  checkpoint_max_files: 10     # auto-delete oldest checkpoints when this limit is exceeded
   delete_orphan_checkpoints: true  # delete checkpoints for series that no longer exist
 
 writer:
