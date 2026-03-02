@@ -101,7 +101,8 @@ class LSTMAnomaly:
                 dropout=self.dropout,
             ).to(DEVICE)
             self._models[series_key] = model
-            self._scalers[series_key] = MinMaxScaler(feature_range=(0, 1))
+            if series_key not in self._scalers:
+                self._scalers[series_key] = MinMaxScaler(feature_range=(0, 1))
             logger.info(f"[Model] Created new LSTM model for series '{series_key}'")
         return self._models[series_key]
 
