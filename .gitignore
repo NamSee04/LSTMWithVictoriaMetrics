@@ -65,6 +65,10 @@ coverage.xml
 # Logs
 *.log
 
+# Runtime checkpoints
+model_checkpoints/
+*.pt
+
 # Models and data (optional - uncomment if needed)
 # *.pth
 # *.pkl
